@@ -23,6 +23,12 @@ A premium personal portfolio website designed and developed for Devender—a Ful
 
 > A modern portfolio crafted to leave a strong first impression with smooth transitions, responsive layouts, elegant typography, and a premium user experience.
 
+### 📸 Screenshots
+<p align="center">
+  <img src="assets/images/thumbs/preview-hero.jpg" alt="Hero Preview" width="48%" />
+  <img src="assets/images/thumbs/preview-footer.jpg" alt="Footer Preview" width="48%" />
+</p>
+
 ### 🔗 Portfolio URLs
 - **Live Site**: [https://devendhargopagoni.netlify.app/](https://devendhargopagoni.netlify.app/)
 - **GitHub Repository**: [https://github.com/devendharoff/devendhar-portfolio-minimal](https://github.com/devendharoff/devendhar-portfolio-minimal)
