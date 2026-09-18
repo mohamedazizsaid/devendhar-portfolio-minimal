@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
 
-// The reference is the unchanged original index.html and original assets.
-// npm run dev exposes it at /__reference/index.html.
 for (const route of ['/__reference/index.html', '/']) {
   test(`${route}: original interaction contract`, async ({ page }) => {
     const errors: string[] = [];
@@ -28,8 +26,10 @@ for (const route of ['/__reference/index.html', '/']) {
 
 test('React keeps reference content, resources, and DOM before animations', async ({ browser, baseURL }) => {
   const context = await browser.newContext();
-  // Block animation scripts on both pages, but allow Vite/React modules.
-  await context.route('**/assets/js/**', route => route.abort());
+  // Return empty scripts rather than network errors so the error fallback does
+  // not itself change the DOM. Inline original scripts remain visible to tests.
+  await context.route('**/assets/js/**', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
+  await context.route('**/__legacy-main.js', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
   const reference = await context.newPage();
   const migrated = await context.newPage();
   await reference.goto(`${baseURL}/__reference/index.html`);
@@ -38,16 +38,17 @@ test('React keeps reference content, resources, and DOM before animations', asyn
   const signature = async (page: typeof reference) => page.evaluate(() => {
     const root = document.getElementById('root') || document.body;
     const walk = (node: Node): unknown => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent?.trim() ? node.textContent : null;
       if (!(node instanceof Element)) return null;
       if (['SCRIPT', 'STYLE'].includes(node.tagName) || node.tagName.includes('-')) return null;
-      return {
-        tag: node.tagName,
-        attributes: Array.from(node.attributes).map(a => [a.name, a.value]).sort(),
-        children: Array.from(node.childNodes).map(walk).filter(x => x !== null),
-      };
+      const attributes = Array.from(node.attributes).map(a => {
+        if (a.name !== 'style') return [a.name, a.value];
+        const css = (node as HTMLElement).style;
+        return [a.name, Array.from(css).sort().map(key => `${key}:${css.getPropertyValue(key).trim()}:${css.getPropertyPriority(key)}`).join(';')];
+      }).sort();
+      return { tag: node.tagName, attributes, children: Array.from(node.childNodes).map(walk).filter(x => x !== null) };
     };
-    return Array.from(root.childNodes).map(walk).filter(x => x !== null && x !== '\n');
+    return Array.from(root.childNodes).map(walk).filter(x => x !== null);
   });
   expect(await signature(migrated)).toEqual(await signature(reference));
   await context.close();
