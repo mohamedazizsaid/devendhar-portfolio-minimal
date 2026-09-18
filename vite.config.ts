@@ -53,11 +53,10 @@ function visit(node: Node, section = 'global') {
       styles.push(serialize(child));
       return false;
     }
+    visit(child, section);
     return true;
   });
-  for (const child of node.childNodes) visit(child, section);
 }
-// Extract scripts in document order, including any head scripts.
 head.childNodes = head.childNodes.filter(child => {
   if (isElement(child) && child.tagName === 'script') {
     scripts.push({ attributes: Object.fromEntries(child.attrs.map(a => [a.name, a.value])), code: serialize(child) });
@@ -72,9 +71,9 @@ if (!existsSync(profilePath) || readFileSync(profilePath, 'utf8').includes('PROF
   writeFileSync(profilePath, '// Extracted once from the COMPLETE original index.html.\n// Edit values here; restarting Vite never overwrites this file.\nexport const dataprofile: Record<string, string> = ' + JSON.stringify(defaults, null, 2) + ';\n');
 }
 const bodyAttrs = body.attrs.map(a => ` ${a.name}=${JSON.stringify(a.value)}`).join('');
-const shell = `<!doctype html><html lang="en"><head>${serialize(head)}${styles.map(s => `<style>${s}</style>`).join('')}</head><body${bodyAttrs}><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`;
+const shell = `<!doctype html><html lang="en"><head>${serialize(head)}${styles.map(s => `<style>${s}</style>`).join('')}</head><body${bodyAttrs}><div id="root" style="display:contents"></div><script type="module" src="/src/main.tsx"></script></body></html>`;
 
-// Only this known initializer needs adapting: React mounts after DOMContentLoaded.
+// Only this inspected initializer is adapted: React mounts after DOMContentLoaded.
 const mainSource = readFileSync(resolve(root, 'assets/js/main.js'), 'utf8');
 const marker = 'document.addEventListener("DOMContentLoaded", () => {';
 const start = mainSource.indexOf(marker);
@@ -86,14 +85,13 @@ for (const script of scripts) {
     script.attributes.src = '__legacy-main.js';
   }
 }
-const virtualId = 'virtual:portfolio-template';
 let outDir = resolve(root, 'dist');
+let building = false;
 const migration: Plugin = {
   name: 'portfolio-react-migration',
-  configResolved(config) { outDir = resolve(root, config.build.outDir); },
-  resolveId(id) { if (id === virtualId) return '\0' + virtualId; },
-  load(id) {
-    if (id === '\0' + virtualId) return `export const template = ${JSON.stringify(template)}; export const scripts = ${JSON.stringify(scripts)};`;
+  configResolved(config) {
+    outDir = resolve(root, config.build.outDir);
+    building = config.command === 'build';
   },
   transformIndexHtml: { order: 'pre', handler: () => shell },
   configureServer(server) {
@@ -113,13 +111,14 @@ const migration: Plugin = {
     });
   },
   handleHotUpdate(context) {
-    // Legacy plugins mutate the DOM. A full reload avoids duplicate listeners/tickers.
-    if (context.file.includes('/src/')) {
+    // Legacy plugins mutate the DOM. Full reload avoids duplicate listeners/tickers.
+    if (context.file.replace(/\\/g, '/').includes('/src/')) {
       context.server.ws.send({ type: 'full-reload' });
       return [];
     }
   },
   closeBundle() {
+    if (!building) return;
     cpSync(resolve(root, 'assets'), resolve(outDir, 'assets'), { recursive: true });
     writeFileSync(resolve(outDir, '__legacy-main.js'), adaptedMain);
   },
@@ -127,5 +126,9 @@ const migration: Plugin = {
 export default defineConfig({
   base: './',
   plugins: [migration],
+  define: {
+    __PORTFOLIO_TEMPLATE__: JSON.stringify(template),
+    __PORTFOLIO_SCRIPTS__: JSON.stringify(scripts),
+  },
   build: { assetsDir: 'react-assets' },
 });
